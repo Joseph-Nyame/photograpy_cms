@@ -23,6 +23,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if (config('app.env') === 'production') {
+        URL::forceScheme('https');
+        }
+
         RateLimiter::for('gallery-unlock', function (Request $request): Limit {
             $gallery = $request->route('gallery');
             $token = $gallery instanceof ClientGallery ? $gallery->token : (string) $gallery;
