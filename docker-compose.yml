@@ -1,0 +1,242 @@
+networks:
+  lumen_network:
+    driver: bridge
+
+volumes:
+  lumen_mysql_data:
+  lumen_redis_data:
+
+services:
+  app:
+    build:
+      context: .
+      target: development
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    container_name: lumen_app_local
+    restart: unless-stopped
+    ports:
+      - "8020:8080"
+    env_file:
+      - .env.docker
+    environment:
+      - APP_ENV=local
+      - APP_DEBUG=true
+      - APP_URL=http://localhost:8020
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=lumen_db
+      - DB_USERNAME=lumen_db_admin
+      - DB_PASSWORD=12345678
+      - SESSION_DRIVER=database
+      - QUEUE_CONNECTION=database
+      - CACHE_STORE=redis
+      - REDIS_HOST=redis
+      - REDIS_CLIENT=predis
+      - MAIL_MAILER=smtp
+      - MAIL_HOST=mailpit
+      - MAIL_PORT=1025
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - lumen_network
+    volumes:
+      - .:/var/www/html
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 900s
+
+  db:
+    image: mysql:8.0
+    container_name: lumen_db_local
+    restart: unless-stopped
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: lumen_db
+      MYSQL_USER: lumen_db_admin
+      MYSQL_PASSWORD: 12345678
+    volumes:
+      - lumen_mysql_data:/var/lib/mysql
+    networks:
+      - lumen_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  queue:
+    build:
+      context: .
+      target: development
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    container_name: lumen_queue_local
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=lumen_db
+      - DB_USERNAME=lumen_db_admin
+      - DB_PASSWORD=12345678
+      - QUEUE_CONNECTION=database
+      - CACHE_STORE=redis
+      - REDIS_HOST=redis
+      - REDIS_CLIENT=predis
+      - MAIL_MAILER=smtp
+      - MAIL_HOST=mailpit
+      - MAIL_PORT=1025
+    entrypoint: []
+    command: php artisan queue:work --queue=default --tries=3 --timeout=120 --sleep=3
+    depends_on:
+      app:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - lumen_network
+    volumes:
+      - .:/var/www/html
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/www/html/artisan"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  scheduler:
+    build:
+      context: .
+      target: development
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    container_name: lumen_scheduler_local
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=lumen_db
+      - DB_USERNAME=lumen_db_admin
+      - DB_PASSWORD=12345678
+      - CACHE_STORE=redis
+      - REDIS_HOST=redis
+      - REDIS_CLIENT=predis
+    entrypoint: []
+    command: sh -c "while true; do php artisan schedule:run --verbose --no-interaction; sleep 60; done"
+    depends_on:
+      app:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lumen_network
+    volumes:
+      - .:/var/www/html
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/www/html/artisan"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  reverb:
+    build:
+      context: .
+      target: development
+      args:
+        USER_ID: ${UID:-1000}
+        GROUP_ID: ${GID:-1000}
+    container_name: lumen_reverb_local
+    restart: unless-stopped
+    ports:
+      - "8083:8080"
+    env_file:
+      - .env.docker
+    environment:
+      - APP_ENV=local
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=lumen_db
+      - DB_USERNAME=lumen_db_admin
+      - DB_PASSWORD=12345678
+      - CACHE_STORE=redis
+      - REDIS_HOST=redis
+      - REDIS_CLIENT=predis
+      - REVERB_SERVER_HOST=0.0.0.0
+      - REVERB_SERVER_PORT=8080
+      - REVERB_HOST=localhost
+    entrypoint: []
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    depends_on:
+      app:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lumen_network
+    volumes:
+      - .:/var/www/html
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/www/html/artisan"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: lumen_redis_local
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    volumes:
+      - lumen_redis_data:/data
+    networks:
+      - lumen_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mailpit:
+    image: axllent/mailpit:v1.20
+    container_name: lumen_mailpit_local
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - lumen_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025/livez"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
