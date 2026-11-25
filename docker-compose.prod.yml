@@ -1,0 +1,93 @@
+networks:
+  lumen_network:
+
+volumes:
+  lumen_mysql_data:
+  lumen_redis_data:
+  lumen_storage:
+
+x-laravel: &laravel
+  image: dockerjosephnyame/lumen-studio:latest
+  restart: unless-stopped
+  env_file: .env
+  networks: [lumen_network]
+
+services:
+  app:
+    <<: *laravel
+    container_name: lumen_app
+    ports:
+      - "127.0.0.1:8020:8080"
+    volumes:
+      - lumen_storage:/var/www/html/storage
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/up"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 180s
+
+  queue:
+    <<: *laravel
+    container_name: lumen_queue
+    entrypoint: []
+    command: php artisan queue:work --queue=default --tries=3 --timeout=120 --sleep=3
+    volumes:
+      - lumen_storage:/var/www/html/storage
+    depends_on:
+      app: { condition: service_healthy }
+
+  scheduler:
+    <<: *laravel
+    container_name: lumen_scheduler
+    entrypoint: []
+    command: sh -c "while true; do php artisan schedule:run --no-interaction; sleep 60; done"
+    volumes:
+      - lumen_storage:/var/www/html/storage
+    depends_on:
+      app: { condition: service_healthy }
+
+  reverb:
+    <<: *laravel
+    container_name: lumen_reverb
+    entrypoint: []
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "127.0.0.1:8083:8080"
+    depends_on:
+      app: { condition: service_healthy }
+
+  db:
+    image: mysql:8.0
+    container_name: lumen_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - lumen_mysql_data:/var/lib/mysql
+    networks: [lumen_network]
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: lumen_redis
+    restart: unless-stopped
+    volumes:
+      - lumen_redis_data:/data
+    networks: [lumen_network]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
