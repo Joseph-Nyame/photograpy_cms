@@ -25,7 +25,7 @@ jobs:
           build-args: |
             VITE_APP_NAME=Lumen Studio
             VITE_REVERB_APP_KEY=${{ secrets.REVERB_APP_KEY }}
-            VITE_REVERB_HOST=lumen.yourdomain.com
+            VITE_REVERB_HOST=studio.billratio.com
             VITE_REVERB_PORT=443
             VITE_REVERB_SCHEME=https
           tags: |
